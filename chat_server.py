@@ -1,56 +1,62 @@
 import socket
 import threading
+import datetime
+import base64
 
-HOST = "0.0.0.0"  # 監聽所有網路介面
-PORT = 12345      # 你可以自行調整埠號
+HOST = '127.0.0.1'
+PORT = 55555
 
 clients = []
-clients_lock = threading.Lock()
+nicknames = []
+avatars = {}
 
-def broadcast(message, sender_socket):
-    with clients_lock:
-        for client in clients:
-            # 不傳給發送者（或也可傳送回去，依需求而定）
-            if client != sender_socket:
-                try:
-                    client.sendall(message)
-                except Exception as e:
-                    print("傳送訊息失敗:", e)
-                    clients.remove(client)
+def broadcast(message):
+    for client in clients:
+        client.send(message)
 
-def handle_client(client_socket, addr):
-    print("新連線:", addr)
-    with client_socket:
-        while True:
-            try:
-                data = client_socket.recv(1024)
-                if not data:
-                    break
-                print(f"從 {addr} 收到: {data.decode('utf-8')}")
-                broadcast(data, client_socket)
-            except Exception as e:
-                print("連線錯誤:", e)
-                break
-    with clients_lock:
-        if client_socket in clients:
-            clients.remove(client_socket)
-    print("連線關閉:", addr)
+def handle(client):
+    while True:
+        try:
+            message = client.recv(1024).decode('utf-8')
+            if message.startswith('REGISTER'):
+                _, nickname, avatar = message.split('|')
+                nicknames.append(nickname)
+                avatars[nickname] = avatar
+                broadcast(f'{nickname} 加入了聊天室！'.encode('utf-8'))
+            elif message.startswith('MESSAGE'):
+                _, content = message.split('|')
+                nickname = nicknames[clients.index(client)]
+                avatar = avatars[nickname]
+                timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                broadcast(f'MESSAGE|{nickname}|{avatar}|{timestamp}|{content}'.encode('utf-8'))
+            elif message.startswith('FILE'):
+                _, filename, filesize, file_base64, content = message.split('|')
+                nickname = nicknames[clients.index(client)]
+                avatar = avatars[nickname]
+                timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                broadcast(f'FILE|{nickname}|{avatar}|{timestamp}|{filename}|{filesize}|{file_base64}|{content}'.encode('utf-8'))
+        except:
+            index = clients.index(client)
+            clients.remove(client)
+            client.close()
+            nickname = nicknames[index]
+            broadcast(f'{nickname} 離開了聊天室！'.encode('utf-8'))
+            nicknames.remove(nickname)
+            break
 
-def main():
-    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_socket.bind((HOST, PORT))
-    server_socket.listen()
-    print(f"聊天伺服器啟動：{HOST}:{PORT}")
-    try:
-        while True:
-            client_socket, addr = server_socket.accept()
-            with clients_lock:
-                clients.append(client_socket)
-            threading.Thread(target=handle_client, args=(client_socket, addr), daemon=True).start()
-    except KeyboardInterrupt:
-        print("伺服器關閉")
-    finally:
-        server_socket.close()
+def receive():
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.bind((HOST, PORT))
+    server.listen()
 
-if __name__ == "__main__":
-    main()
+    while True:
+        client, address = server.accept()
+        print(f'Connected with {str(address)}')
+
+        clients.append(client)
+
+        thread = threading.Thread(target=handle, args=(client,))
+        thread.start()
+
+print('Server is listening...')
+receive()
