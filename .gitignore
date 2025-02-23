@@ -1,4 +1,4 @@
-.zip
+*.zip
 profile.json
 messages.json
 /attachments
