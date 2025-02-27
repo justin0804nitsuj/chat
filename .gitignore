@@ -3,4 +3,6 @@ profile.json
 messages.json
 /attachments
 /before
-/after
+/empty
+
+user_info.json
